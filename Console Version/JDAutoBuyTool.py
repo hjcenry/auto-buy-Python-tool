@@ -14,6 +14,7 @@ from email.header import Header
 
 import traceback
 
+
 def setLogger(logFileName, logger):
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
@@ -28,7 +29,7 @@ def setLogger(logFileName, logger):
     logger.addHandler(file_handler)
 
 
-def sendMail(url, isOrder, sendTo):
+def send_mail(url, isOrder, sendTo):
     if len(sendTo) == 0 or sendTo == '$$$$$$$@qq.com':
         return
 
@@ -95,6 +96,8 @@ def responseStatus(resp):
         print('Status: %u, Url: %s' % (resp.status_code, resp.url))
         return False
     return True
+
+
 def validateCookies(logger, session):
     for flag in range(1, 3):
         try:
@@ -146,6 +149,7 @@ def cancelSelectCartItem(session):
         return False
     return True
 
+
 def cart_detail(session, logger, isOutput=False):
     url = 'https://cart.jd.com/cart.action'
     headers = {
@@ -185,6 +189,7 @@ def cart_detail(session, logger, isOutput=False):
     if isOutput == True:
         logger.info('当前购物车信息: %s', cartDetail)
     return cartDetail
+
 
 def change_item_num_in_cart(sku_id, vender_id, num, p_type, target_id, promo_id, session):
     url = "https://cart.jd.com/changeNum.action"
@@ -369,6 +374,7 @@ def buyGood(sku_id, session, logger, payment_pwd):
         logger.info('执行结束, 提交订单失败！')
         return False
 
+
 def main(sendTo, cookies_String, url):
     session = requests.session()
     session.headers = {
@@ -417,10 +423,10 @@ def main(sendTo, cookies_String, url):
                     if item_removed(skuId):
                         logger.info('[%s]商品有货啦! 马上下单...', skuId)
                         if buyGood(skuId, session, logger, payment_pwd):
-                            sendMail(skuidUrl, True, sendTo)
+                            send_mail(skuidUrl, True, sendTo)
                             sys.exit(1)
                         else:
-                            sendMail(skuidUrl, False, sendTo)
+                            send_mail(skuidUrl, False, sendTo)
                         sys.exit(1)
                     else:
                         logger.info('[%s]商品有货, 但已下架.', skuId)

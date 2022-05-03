@@ -6,31 +6,35 @@
 #
 # WARNING! All changes made in this file will be lost!
 
-from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import QTimer
-
-import sys
-
-import argparse
+import json
+import logging
+import logging.handlers
 import os
 import pickle
 import random
-import time
-import json
-import requests
 import re
-import logging
-import logging.handlers
-from bs4 import BeautifulSoup
 import smtplib
-from email.mime.text import MIMEText
+import sys
+import time
 from email.header import Header
+from email.mime.text import MIMEText
+
+import requests
+from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.QtCore import QTimer
+from PyQt5.QtWidgets import QApplication
+from bs4 import BeautifulSoup
+
+from bark.bark_pusher import BarkPusher
+from config import global_config
+
+LOG_FILENAME = global_config.getRaw("config", "log_name")
+
 
 class Ui_QSSWindow(object):
     def setupUi(self, QSSWindow):
         QSSWindow.setObjectName("QSSWindow")
-        QSSWindow.resize(950, 450)
+        QSSWindow.resize(1950, 1450)
         self.centralwidget = QtWidgets.QWidget(QSSWindow)
         self.centralwidget.setObjectName("centralwidget")
         self.verticalLayout_3 = QtWidgets.QVBoxLayout(self.centralwidget)
@@ -64,6 +68,7 @@ class Ui_QSSWindow(object):
         self.inputArea.setObjectName("inputArea")
         self.area.addWidget(self.inputArea)
 
+        # 邮箱
         self.labelMail = QtWidgets.QLabel(self.groupBox)
         self.labelMail.setObjectName("labelMail")
         self.area.addWidget(self.labelMail)
@@ -71,6 +76,15 @@ class Ui_QSSWindow(object):
         self.inputMail.setObjectName("inputMail")
         self.area.addWidget(self.inputMail)
 
+        # Bark Key
+        self.labelBark = QtWidgets.QLabel(self.groupBox)
+        self.labelBark.setObjectName("labelBark")
+        self.area.addWidget(self.labelBark)
+        self.inputBark = QtWidgets.QLineEdit(self.groupBox)
+        self.inputBark.setObjectName("inputBark")
+        self.area.addWidget(self.inputBark)
+
+        # 抢购数量
         self.labelNum = QtWidgets.QLabel(self.groupBox)
         self.labelNum.setObjectName("labelNum")
         self.area.addWidget(self.labelNum)
@@ -98,24 +112,24 @@ class Ui_QSSWindow(object):
         self.speedLayout.addWidget(self.progressBar)
 
         self.verticalLayout.addLayout(self.speedLayout)
-        self.textEdit = QtWidgets.QTextEdit(self.groupBox)
-        self.textEdit.setObjectName("textEdit")
-        self.verticalLayout.addWidget(self.textEdit)
-        self.buttonLayout = QtWidgets.QHBoxLayout()
-        self.buttonLayout.setObjectName("buttonLayout")
+        self.text_edit = QtWidgets.QTextEdit(self.groupBox)
+        self.text_edit.setObjectName("textEdit")
+        self.verticalLayout.addWidget(self.text_edit)
+        self.button_layout = QtWidgets.QHBoxLayout()
+        self.button_layout.setObjectName("buttonLayout")
         self.loginBtn = QtWidgets.QPushButton(self.groupBox)
         self.loginBtn.setStyleSheet("")
         self.loginBtn.setObjectName("loginBtn")
-        self.buttonLayout.addWidget(self.loginBtn)
-        self.startBtn = QtWidgets.QPushButton(self.groupBox)
-        self.startBtn.setStyleSheet("")
-        self.startBtn.setObjectName("startBtn")
-        self.buttonLayout.addWidget(self.startBtn)
-        self.stopBtn = QtWidgets.QPushButton(self.groupBox)
-        self.stopBtn.setStyleSheet("")
-        self.stopBtn.setObjectName("stopBtn")
-        self.buttonLayout.addWidget(self.stopBtn)
-        self.verticalLayout.addLayout(self.buttonLayout)
+        self.button_layout.addWidget(self.loginBtn)
+        self.start_btn = QtWidgets.QPushButton(self.groupBox)
+        self.start_btn.setStyleSheet("")
+        self.start_btn.setObjectName("startBtn")
+        self.button_layout.addWidget(self.start_btn)
+        self.stop_btn = QtWidgets.QPushButton(self.groupBox)
+        self.stop_btn.setStyleSheet("")
+        self.stop_btn.setObjectName("stopBtn")
+        self.button_layout.addWidget(self.stop_btn)
+        self.verticalLayout.addLayout(self.button_layout)
         self.verticalLayout_2.addWidget(self.groupBox)
         self.tabWidget.addTab(self.tab, "")
         self.tab_1 = QtWidgets.QWidget()
@@ -143,31 +157,28 @@ class Ui_QSSWindow(object):
         self.menubar.addAction(self.file.menuAction())
         self.menubar.addAction(self.edit.menuAction())
 
-        self.retranslateUi(QSSWindow)
+        self.re_translate_ui(QSSWindow)
         self.tabWidget.setCurrentIndex(5)
         QtCore.QMetaObject.connectSlotsByName(QSSWindow)
 
-
-
-
-
-    def retranslateUi(self, QSSWindow):
+    def re_translate_ui(self, QSSWindow):
         _translate = QtCore.QCoreApplication.translate
         QSSWindow.setWindowTitle(_translate("QSSWindow", "MainWindow"))
         self.tabWidget.setToolTip(_translate("QSSWindow", "<html><head/><body><p><br/></p></body></html>"))
         self.tabWidget.setWhatsThis(_translate("QSSWindow", "<html><head/><body><p><br/></p></body></html>"))
-        self.groupBox.setTitle(_translate("QSSWindow", "一定能尽快战胜疫情, 中国加油!"))
+        self.groupBox.setTitle(_translate("QSSWindow", "让我抢一个A7M4吧！！！"))
         self.labelGoods.setText(_translate("QSSWindow", "请输入商品ID(以逗号间隔):"))
         self.labelArea.setText(_translate("QSSWindow", "请输入收件地区编码:"))
-        self.labelMail.setText(_translate("QSSWindow", "接受讯息邮箱:"))
+        self.labelMail.setText(_translate("QSSWindow", "通知邮箱:"))
+        self.labelBark.setText(_translate("QSSWindow", "Bark秘钥:"))
         self.labelNum.setText(_translate("QSSWindow", "购买数量:"))
         self.loginBtn.setText(_translate("QSSWindow", "扫码登录"))
-        self.startBtn.setText(_translate("QSSWindow", "开始监控(可自动登录)"))
-        self.stopBtn.setText(_translate("QSSWindow", "停止监控"))
+        self.start_btn.setText(_translate("QSSWindow", "开始监控(可自动登录)"))
+        self.stop_btn.setText(_translate("QSSWindow", "停止监控"))
         self.checkBox.setText(_translate("QSSWindow", "是否自动忽略下架商品"))
 
-
-        self.labelAboutMe.setText(_translate("QSSWindow", '<h1>使用指南</h1> <a href="https://github.com/ZhangYikaii/auto-buy-Python-tool">请点击这里跳转</a> <h3>战疫情, 加油!</h3> <h4>欢迎在GitHub上加星. 谢谢!</h4> <h3>Tips: 登录一次之后本地会保存登录信息, 重启软件之后仍然可以记住账号登录信息</h3> <h3>只需点击"开始监控"就可以自动登录, 不必重复扫码哦</h3>'))
+        self.labelAboutMe.setText(_translate("QSSWindow",
+                                             '<h1>使用指南</h1> <a href="https://github.com/ZhangYikaii/auto-buy-Python-tool">请点击这里跳转</a> <h3>战疫情, 加油!</h3> <h4>欢迎在GitHub上加星. 谢谢!</h4> <h3>Tips: 登录一次之后本地会保存登录信息, 重启软件之后仍然可以记住账号登录信息</h3> <h3>只需点击"开始监控"就可以自动登录, 不必重复扫码哦</h3>'))
         self.labelAboutMe.setOpenExternalLinks(True)
 
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab), _translate("QSSWindow", "Console"))
@@ -175,7 +186,6 @@ class Ui_QSSWindow(object):
 
         self.file.setTitle(_translate("QSSWindow", "文件"))
         self.edit.setTitle(_translate("QSSWindow", "编辑"))
-
 
 
 class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
@@ -197,30 +207,29 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
         }
 
         self.speed = 5000
-        self.isMonitorSoldout = True
+        self.is_monitor_sold_out = True
         # self.isLogin = False
         self.cookiesString = ''
         self.cookies = {}
-        self.skuidString = ''
-        self.skuid = []
+        self.sku_id_string = ''
+        self.sku_id = []
         self.cont = 1
         self.timer = QTimer(self)
         self.logger = logging.getLogger()
-        self.loadQSS()
+        self.load_qss()
         self.setupUi(self)
-        self.connectSign()
-        self.initData()
-        self.show()
+        self.connect_sign()
+        self.init_data()
+        # self.show()
 
-
-    def loadQSS(self):
+    def load_qss(self):
         file = 'window.qss'
         with open(file, 'rt', encoding='utf8') as f:
-            styleSheet = f.read()
-        self.setStyleSheet(styleSheet)
+            style_sheet = f.read()
+        self.setStyleSheet(style_sheet)
         f.close()
 
-    def setLogger(self, logFileName='jdAutoBuyGood.log'):
+    def set_logger(self, logFileName=LOG_FILENAME):
         self.logger.setLevel(logging.INFO)
         formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
 
@@ -233,17 +242,18 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
 
-    def initData(self):
-        self.inputGoods.setText("65466451629,65437208345,7498169,7498165,1835968,7263128,7498167,17449572304,37934196731,100001086804,56657322838,56657322841,100005294853,1938795,15595191653,15595191654,45923412989,1835967,1336984,65466451629,7498169,7263128,4061438,65421329578,100005678825,100005294853,45923412989,62830056100,45006657879")
-        self.inputArea.setText("16_1362_44319_51500")
-        self.inputMail.setText("$$$$$$$@qq.com")
+    def init_data(self):
+        self.inputGoods.setText(global_config.getRaw("config", "skuIds"))
+        self.inputArea.setText(global_config.getRaw("config", "area"))
+        self.inputMail.setText(global_config.getRaw("messenger", "mails"))
+        self.inputBark.setText(global_config.getRaw("messenger", "bark_keys"))
         self.comboBox.addItems(['1', '2', '3'])
         self.horizontalSlider.setValue(50)
         self.horizontalSlider.setMaximum(100)
         self.horizontalSlider.setMinimum(0)
-        self.setProgressBar()
+        self.set_progress_bar()
 
-        self.setLogger()
+        self.set_logger()
 
         if len(self.cookiesString) != 0:
             manual_cookies = {}
@@ -254,23 +264,23 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
             self.cookies = requests.utils.cookiejar_from_dict(manual_cookies, cookiejar=None, overwrite=True)
             self.sess.cookies = self.cookies
 
-    def connectSign(self):
-        self.horizontalSlider.valueChanged.connect(self.setProgressBar)
-        self.horizontalSlider.valueChanged[int].connect(self.slvaluechange)
+    def connect_sign(self):
+        self.horizontalSlider.valueChanged.connect(self.set_progress_bar)
+        self.horizontalSlider.valueChanged[int].connect(self.set_speed)
 
-        self.loginBtn.clicked.connect(self.loginByQR)
-        self.startBtn.clicked.connect(self.monitorConnect)
-        self.stopBtn.clicked.connect(self.stopConnect)
+        self.loginBtn.clicked.connect(self.login_by_qr)
+        self.start_btn.clicked.connect(self.monitor_connect)
+        self.stop_btn.clicked.connect(self.stop_connect)
 
-    def stopConnect(self):
-        self.updateStateText("已停止监控.")
+    def stop_connect(self):
+        self.update_state_text("已停止监控.")
         self.timer.stop()
 
-    def stopNow(self):
-        self.updateStateText("已停止监控.")
+    def stop_now(self):
+        self.update_state_text("已停止监控.")
         self.timer.stop()
 
-    def slvaluechange(self, val):
+    def set_speed(self, val):
         # self.updateStateText("设置抢购速度: %d" % val)
         if val > 85:
             self.speed = 500
@@ -279,40 +289,40 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
         else:
             self.speed = 10000 - val * 100
 
-    def setProgressBar(self):
+    def set_progress_bar(self):
         self.progressBar.setValue(self.horizontalSlider.value())
 
-    def checkLogin(self):
-        self.updateStateText('正在验证登录状态...')
+    def check_login(self):
+        self.update_state_text('正在验证登录状态...')
         for flag in range(1, 3):
             try:
-                targetURL = 'https://order.jd.com/center/list.action'
+                target_url = 'https://order.jd.com/center/list.action'
                 payload = {
                     'rid': str(int(time.time() * 1000)),
                 }
-                resp = self.sess.get(url=targetURL, params=payload, allow_redirects=False)
+                resp = self.sess.get(url=target_url, params=payload, allow_redirects=False)
                 if resp.status_code == requests.codes.OK:
-                    self.updateStateText('登录成功!')
+                    self.update_state_text('登录成功!')
                     return True
                 else:
-                    self.updateStateText('第 %s 次再尝试验证cookie...' % flag)
-                    self.updateStateText('正在尝试从历史讯息中恢复...')
+                    self.update_state_text('第 %s 次再尝试验证cookie...' % flag)
+                    self.update_state_text('正在尝试从历史讯息中恢复...')
                     with open('cookie', 'rb') as f:
                         cookies = requests.utils.cookiejar_from_dict(pickle.load(f))
                     # print(cookies)
                     self.sess.cookies = cookies
                     continue
             except Exception as e:
-                self.updateStateText(str(e))
-                self.updateStateText('第 %s 次再尝试验证cookie...' % flag)
+                self.update_state_text(str(e))
+                self.update_state_text('第 %s 次再尝试验证cookie...' % flag)
                 continue
-        self.updateStateText('请登录!')
+        self.update_state_text('请登录!')
         return False
 
-    def loginByQR(self):
+    def login_by_qr(self):
         # jd login by QR code
         try:
-            self.updateStateText('请您打开京东手机客户端或微信扫一扫, 准备扫码登录')
+            self.update_state_text('请您打开京东手机客户端或微信扫一扫, 准备扫码登录')
 
             urls = (
                 'https://passport.jd.com/new/login.aspx',
@@ -326,7 +336,7 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
                 headers=self.headers
             )
             if response.status_code != requests.codes.OK:
-                self.updateStateText(f'获取登录页失败: {response.status_code}')
+                self.update_state_text(f'获取登录页失败: {response.status_code}')
                 # self.isLogin = False
                 return False
             # update cookies
@@ -345,7 +355,7 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
                 }
             )
             if response.status_code != requests.codes.OK:
-                self.updateStateText(f'获取二维码失败: {response.status_code}')
+                self.update_state_text(f'获取二维码失败: {response.status_code}')
                 # self.isLogin = False
                 return False
 
@@ -395,15 +405,15 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
                     continue
                 rs = json.loads(re.search(r'{.*?}', response.text, re.S).group())
                 if rs['code'] == 200:
-                    self.updateStateText(f"{rs['ticket']}(Response Code: {rs['code']})")
+                    self.update_state_text(f"{rs['ticket']}(Response Code: {rs['code']})")
                     qr_ticket = rs['ticket']
                     break
                 else:
-                    self.updateStateText(f"{rs['msg']}(Response Code: {rs['code']})")
+                    self.update_state_text(f"{rs['msg']}(Response Code: {rs['code']})")
                     time.sleep(2)
 
             if not qr_ticket:
-                self.updateStateText("ERROR: 二维码登录失败.")
+                self.update_state_text("ERROR: 二维码登录失败.")
                 # self.isLogin = False
                 return False
 
@@ -417,7 +427,7 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
                 params={'t': qr_ticket},
             )
             if response.status_code != requests.codes.OK:
-                self.updateStateText(f"二维码登录校验失败: {response.status_code}")
+                self.update_state_text(f"二维码登录校验失败: {response.status_code}")
                 # self.isLogin = False
                 return False
 
@@ -426,11 +436,11 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
             res = json.loads(response.text)
             if not response.headers.get('p3p'):
                 if 'url' in res:
-                    self.updateStateText(f"请进行手动安全验证: {res['url']}")
+                    self.update_state_text(f"请进行手动安全验证: {res['url']}")
                     # self.isLogin = False
                     return False
                 else:
-                    self.updateStateText('登录失败, ERROR message: ' + res)
+                    self.update_state_text('登录失败, ERROR message: ' + res)
                     # self.isLogin = False
                     return False
 
@@ -439,33 +449,32 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
             self.cookies.update(response.cookies)
             self.sess.cookies = response.cookies
 
-
             # save cookie
             with open('cookie', 'wb') as f:
                 pickle.dump(self.cookies, f)
 
-            self.updateStateText("登录成功!")
+            self.update_state_text("登录成功!")
             # self.isLogin = True
-            self.getUsername()
+            self.get_user_name()
             return True
 
         except Exception as e:
             # self.isLogin = False
-            self.updateStateText('ERROR message: ' + str(e))
+            self.update_state_text('ERROR message: ' + str(e))
             raise
 
-    def getUsername(self):
+    def get_user_name(self):
         userName_Url = 'https://passport.jd.com/new/helloService.ashx?callback=jQuery339448&_=' + str(
             int(time.time() * 1000))
 
         resp = self.sess.get(url=userName_Url, allow_redirects=True)
-        resultText = resp.text
-        resultText = resultText.replace('jQuery339448(', '')
-        resultText = resultText.replace(')', '')
-        usernameJson = json.loads(resultText)
-        self.updateStateText('账号名称: ' + usernameJson['nick'])
+        result_text = resp.text
+        result_text = result_text.replace('jQuery339448(', '')
+        result_text = result_text.replace(')', '')
+        user_name_json = json.loads(result_text)
+        self.update_state_text('账号名称: ' + user_name_json['nick'])
 
-    def checkStock(self):
+    def check_stock(self):
         url = 'https://c0.3.cn/stocks'
 
         callback = 'jQuery' + str(random.randint(1000000, 9999999))
@@ -479,43 +488,43 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
 
         payload = {
             'type': 'getstocks',
-            'skuIds': self.skuidString,
-            'area': self.areaID,
+            'skuIds': self.sku_id_string,
+            'area': self.area_id,
             'callback': callback,
             '_': int(time.time() * 1000),
         }
         resp = self.sess.get(url=url, params=payload, headers=headers)
-        respText = resp.text.replace(callback + '(', '').replace(')', '')
-        respJson = json.loads(respText)
-        inStockSkuid = []
-        nohasSkuid = []
-        abnormalSkuid = []
+        resp_text = resp.text.replace(callback + '(', '').replace(')', '')
+        resp_json = json.loads(resp_text)
+        in_stock_sku_id = []
+        no_has_sku_id = []
+        abnormal_skuid = []
 
-        soldOut = 0
+        sold_out = 0
         alloca = 0
-        for i in self.skuid:
+        for i in self.sku_id:
             try:
-                if respJson[i]['StockStateName'] == '无货':
-                    nohasSkuid.append(i)
-                    soldOut += 1
-                elif respJson[i]['StockStateName'] == '可配货':
-                    nohasSkuid.append(i)
+                if resp_json[i]['StockStateName'] == '无货':
+                    no_has_sku_id.append(i)
+                    sold_out += 1
+                elif resp_json[i]['StockStateName'] == '可配货':
+                    no_has_sku_id.append(i)
                     alloca += 1
                 else:
-                    inStockSkuid.append(i)
+                    in_stock_sku_id.append(i)
 
             except Exception as e:
-                abnormalSkuid.append(i)
+                abnormal_skuid.append(i)
 
-        if soldOut != 0:
-            self.updateStateText('监控的 %d 个商品无货.' % soldOut)
-        if alloca  != 0:
-            self.updateStateText('监控的 %d 个商品所在地区暂无货, 未来可能配货.' % alloca)
-        if len(abnormalSkuid) > 0:
-            self.updateStateText('WARNING: %s 编号商品查询异常.' % ','.join(abnormalSkuid))
-        return inStockSkuid
+        if sold_out != 0:
+            self.update_state_text('监控的 %d 个商品无货.' % sold_out)
+        if alloca != 0:
+            self.update_state_text('监控的 %d 个商品所在地区暂无货, 未来可能配货.' % alloca)
+        if len(abnormal_skuid) > 0:
+            self.update_state_text('WARNING: %s 编号商品查询异常.' % ','.join(abnormal_skuid))
+        return in_stock_sku_id
 
-    def isSoldOut(self, sku_id):
+    def is_sold_out(self, sku_id):
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/531.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
@@ -525,9 +534,17 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
         }
         url = 'https://item.jd.com/{}.html'.format(sku_id)
         page = requests.get(url=url, headers=headers)
-        return '该商品已下柜' not in page.text
 
-    def selectAll(self):
+        page_text = page.text
+
+        if "class=\"btn-special1 btn-lg btn-disable\" style=\"\">抢购</a>" in page_text:
+            # 按钮灰了，买不了了
+            return True
+        if '该商品已下柜' in page.text:
+            return True
+        return False
+
+    def select_all(self):
         url = "https://cart.jd.com/selectAllItem.action"
         data = {
             't': 0,
@@ -536,17 +553,17 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
         }
         resp = self.sess.post(url, data=data)
         if resp.status_code != requests.codes.OK:
-            self.updateStateText('全选购物车商品出错! status_code: %u, URL: %s' % (resp.status_code, resp.url))
+            self.update_state_text('全选购物车商品出错! status_code: %u, URL: %s' % (resp.status_code, resp.url))
             return False
-        self.updateStateText('全选购物车商品成功.')
+        self.update_state_text('全选购物车商品成功.')
         return True
 
-    def cart_detail(self, isOutput=False):
+    def cart_detail(self, is_output=False):
         url = 'https://cart.jd.com/cart.action'
         resp = self.sess.get(url, headers=self.headers)
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        cartDetail = dict()
+        cart_detail = dict()
         for item in soup.find_all(class_='item-item'):
             sku_id = item['skuid']  # 商品id
             try:
@@ -563,7 +580,7 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
                         value = tag[index].text
                     return value.strip(' \t\r\n')
 
-                cartDetail[sku_id] = {
+                cart_detail[sku_id] = {
                     'name': get_tag_value(item.select('div.p-name a')),  # 商品名称
                     'verder_id': item['venderid'],  # 商家id
                     'count': int(item['num']),  # 数量
@@ -575,13 +592,13 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
                     'promo_id': promo_id
                 }
             except Exception as e:
-                self.updateStateText("ERROR: 商品%s在购物车中的信息无法解析, 报错信息: %s, 该商品自动忽略.", sku_id, e)
+                self.update_state_text("ERROR: 商品%s在购物车中的信息无法解析, 报错信息: %s, 该商品自动忽略.", sku_id, e)
 
-        if isOutput == True:
-            self.updateStateText('当前购物车信息: %s.' % cartDetail)
-        return cartDetail
+        if is_output:
+            self.update_state_text('当前购物车信息: %s.' % cart_detail)
+        return cart_detail
 
-    def addItemToCart(self, sku_id):
+    def add_item_to_cart(self, sku_id):
         url = 'https://cart.jd.com/gate.action'
         addNum = self.comboBox.currentIndex() + 1
         payload = {
@@ -597,17 +614,17 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
             result = bool(soup.select('h3.ftx-02'))  # [<h3 class="ftx-02">商品已成功加入购物车！</h3>]
 
         if result:
-            self.updateStateText('%s 编号商品已成功加入购物车, 数量: %d.' % (sku_id, addNum))
+            self.update_state_text('%s 编号商品已成功加入购物车, 数量: %d.' % (sku_id, addNum))
         else:
-            self.updateStateText('ERROR: %s 编号商品添加到购物车失败.' % sku_id)
+            self.update_state_text('ERROR: %s 编号商品添加到购物车失败.' % sku_id)
 
-    def responseStatus(self, resp):
+    def response_status(self, resp):
         if resp.status_code != requests.codes.OK:
-            self.updateStateText('Status: %u, Url: %s' % (resp.status_code, resp.url))
+            self.update_state_text('Status: %u, Url: %s' % (resp.status_code, resp.url))
             return False
         return True
 
-    def getCheckoutPageDetail(self):
+    def get_check_out_page_detail(self):
         url = 'http://trade.jd.com/shopping/order/getOrderInfo.action'
         # url = 'https://cart.jd.com/gotoOrder.action'
         payload = {
@@ -623,8 +640,8 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
         try:
             resp = self.sess.get(url=url, params=payload, headers=headers)
 
-            if not self.responseStatus(resp):
-                self.updateStateText('ERROR: 获取订单结算页信息失败.')
+            if not self.response_status(resp):
+                self.update_state_text('ERROR: 获取订单结算页信息失败.')
                 return None
             soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -635,12 +652,12 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
                 'items': []
             }
 
-            self.updateStateText("下单信息: %s" % order_detail)
+            self.update_state_text("下单信息: %s" % order_detail)
             return order_detail
         except requests.exceptions.RequestException as e:
-            self.updateStateText('订单结算页面获取异常, ERROR message: %s.' % e)
+            self.update_state_text('订单结算页面获取异常, ERROR message: %s.' % e)
         except Exception as e:
-            self.updateStateText('下单页面数据解析异常, ERROR message: %s.' % e)
+            self.update_state_text('下单页面数据解析异常, ERROR message: %s.' % e)
         return None
 
     def submit_order(self, risk_control, payment_pwd):
@@ -693,7 +710,7 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
             resp_json = json.loads(resp.text)
 
             if resp_json.get('success'):
-                self.updateStateText('订单提交成功! 订单号: %s' % resp_json.get('orderId'))
+                self.update_state_text('订单提交成功! 订单号: %s' % resp_json.get('orderId'))
                 return True
             else:
                 message, result_code = resp_json.get('message'), resp_json.get('resultCode')
@@ -704,14 +721,14 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
                     message = message + '(可能是购物车为空或未勾选购物车中商品)'
                 elif result_code == 60123:
                     message = message + '(未配置支付密码)'
-                self.updateStateText('订单提交失败, 错误码: %s, 返回信息: %s.' % (result_code, message))
-                self.updateStateText(resp_json)
+                self.update_state_text('订单提交失败, 错误码: %s, 返回信息: %s.' % (result_code, message))
+                self.update_state_text(resp_json)
                 return False
         except Exception as e:
-            self.updateStateText("ERROR: " + str(e))
+            self.update_state_text("ERROR: " + str(e))
             return False
 
-    def cancelSelectCartItem(self):
+    def cancel_select_cart_item(self):
         url = "https://cart.jd.com/cancelAllItem.action"
         data = {
             't': 0,
@@ -720,76 +737,96 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
         }
         resp = self.sess.post(url, data=data)
         if resp.status_code != requests.codes.OK:
-            self.updateStateText('cancelSelectCartItem() function WARNING: %u, Url: %s' % (resp.status_code, resp.url))
+            self.update_state_text(
+                'cancelSelectCartItem() function WARNING: %u, Url: %s' % (resp.status_code, resp.url))
             return False
         return True
 
-    def buyGoods(self, sku_id):
-        for i in range(1, 2):
-            self.updateStateText('第 %d/%d 次尝试提交订单...' % (i, 2))
-            self.cancelSelectCartItem()
+    def buy_goods(self, sku_id, retry_times):
+        for i in range(1, retry_times):
+            self.update_state_text('第 %d/%d 次尝试提交订单...' % (i, retry_times))
+            self.cancel_select_cart_item()
             cart = self.cart_detail()
             if sku_id not in cart:
-                self.addItemToCart(sku_id)
+                self.add_item_to_cart(sku_id)
                 self.cart_detail(True)
 
-            risk_control = self.getCheckoutPageDetail()
-            if risk_control != None:
+            risk_control = self.get_check_out_page_detail()
+            if risk_control is not None:
                 if self.submit_order(risk_control, ''):
                     return True
             time.sleep(1)
         else:
-            self.updateStateText('执行结束，提交订单失败.')
+            self.update_state_text('执行结束，提交订单失败.')
             return False
 
-    def monitorConnect(self):
-        if self.checkLogin() == False:
+    def monitor_connect(self):
+        if not self.check_login():
             return False
-        self.skuidString = self.inputGoods.text()
+        self.sku_id_string = self.inputGoods.text()
         pattern = re.compile(",|，")
-        self.skuid = pattern.split(self.skuidString)
+        self.sku_id = pattern.split(self.sku_id_string)
 
-        self.areaID = self.inputArea.text()
+        self.area_id = self.inputArea.text()
 
-        self.timer.timeout.connect(self.monitorMain)
-        self.updateStateText("当前轮询速度为 %f 秒/次." % (self.speed / 1000))
+        self.timer.timeout.connect(self.monitor_main)
+        self.update_state_text("当前轮询速度为 %f 秒/次." % (self.speed / 1000))
         if self.checkBox.isChecked():
-            self.isMonitorSoldout = False
-            self.updateStateText('当前模式将为您自动忽略并删除下架商品.')
+            self.is_monitor_sold_out = False
+            self.update_state_text('当前模式将为您自动忽略并删除下架商品.')
         else:
-            self.isMonitorSoldout = True
-            self.updateStateText('当前模式将为您保持监控下架商品, 若其上架则立即抢购.')
+            self.is_monitor_sold_out = True
+            self.update_state_text('当前模式将为您保持监控下架商品, 若其上架则立即抢购.')
+
         self.timer.start(self.speed)  # 设置计时间隔并启动
         return True
 
-    def sendMail(self, url, isOrder):
-        sendTo = self.inputMail.text()
-        if len(sendTo) == 0 or sendTo == '$$$$$$$@qq.com':
+    def send_mail(self, url, goods_title, is_order):
+        send_to = self.inputMail.text()
+        if send_to is None or len(send_to) == 0:
             return
 
-        mailRe = re.compile('^\w{1,15}@\w{1,10}\.(com|cn|net)$')
-        if not re.search(mailRe, sendTo):
+        for mail in send_to:
+            mail_re = re.compile('^\w{1,15}@\w{1,10}\.(com|cn|net)$')
+            if not re.search(mail_re, send_to):
+                return
+
+            sendFrom = '359583129@qq.com'
+
+            smtp_server = 'smtp.qq.com'
+            if is_order:
+                msg = MIMEText('您抢购的 ' + goods_title + ' (' + url + ') 商品已下单, 请在尽快付款.', 'plain', 'utf-8')
+            else:
+                msg = MIMEText('您抢购的 ' + goods_title + ' (' + url + ') 商品下单失败.', 'plain', 'utf-8')
+
+            msg['From'] = Header(sendFrom)
+            msg['To'] = Header(send_to)
+            msg['Subject'] = Header('京东商品自动购买程序提示讯息')
+
+            server = smtplib.SMTP_SSL(host=smtp_server)
+            server.connect(smtp_server, 465)
+            server.login(sendFrom, 'Hjc@921209')
+            server.sendmail(sendFrom, send_to, msg.as_string())
+            server.quit()
+
+    def send_bark(self, url, goods_title, is_order):
+        bark_keys = self.inputBark.text()
+
+        if bark_keys is None or len(bark_keys) == 0:
             return
 
-        sendFrom = '645064582@qq.com'
+        server_ip = global_config.getRaw("messenger", "bark_server_ip")
+        server_port = int(global_config.getRaw("messenger", "bark_server_port"))
+        pusher = BarkPusher(server_ip, server_port, bark_keys.split(","))
 
-        smtp_server = 'smtp.qq.com'
-        if isOrder:
-            msg = MIMEText('您抢购的 ' + url + ' 商品已下单, 请在尽快付款.', 'plain', 'utf-8')
+        if is_order:
+            pusher.push_msg_content('抢购成功！' + goods_title, '您抢购的 ' + goods_title + ' (' + url + ') 商品已下单, 请在尽快付款.',
+                                    "jd_sec_kill")
         else:
-            msg = MIMEText('您抢购的 ' + url + ' 商品下单失败.', 'plain', 'utf-8')
+            pusher.push_msg_content('抢购成功！' + goods_title, '您抢购的 ' + goods_title + ' (' + url + ') 商品已下单, 请在尽快付款.',
+                                    "jd_sec_kill")
 
-        msg['From'] = Header(sendFrom)
-        msg['To'] = Header(sendTo)
-        msg['Subject'] = Header('京东商品自动购买程序提示讯息')
-
-        server = smtplib.SMTP_SSL(host=smtp_server)
-        server.connect(smtp_server, 465)
-        server.login(sendFrom, 'nkrzicfjkzznbehi')
-        server.sendmail(sendFrom, sendTo, msg.as_string())
-        server.quit()
-
-    def removeItem(self):
+    def remove_item(self):
         url = "https://cart.jd.com/batchRemoveSkusFromCart.action"
         data = {
             't': 0,
@@ -812,67 +849,93 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
 
         resp = self.sess.post(url, data=data, headers=headers)
         if resp.status_code != requests.codes.OK:
-            self.updateStateText('清空购物车勾选商品出错. status_code: %u, URL: %s.' % (resp.status_code, resp.url))
+            self.update_state_text('清空购物车勾选商品出错. status_code: %u, URL: %s.' % (resp.status_code, resp.url))
             return False
 
-        self.updateStateText('清空购物车勾选商品成功!')
+        self.update_state_text('清空购物车勾选商品成功!')
         return True
 
-    def monitorMain(self):
+    def notify(self, sku_id, buy_result):
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/531.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+            "Referer": "http://trade.jd.com/shopping/order/getOrderInfo.action",
+            "Connection": "keep-alive",
+            'Host': 'item.jd.com',
+        }
+        url = 'https://item.jd.com/{}.html'.format(sku_id)
+        page = requests.get(url=url, headers=headers)
+        soup = BeautifulSoup(page.text, "html.parser")
+        goods_title = soup.find("title").text
+
+        sku_id_url = 'https://item.jd.com/' + sku_id + '.html'
+
+        # 发邮件
+        self.send_mail(sku_id_url, goods_title, buy_result)
+        # 发bark
+        self.send_bark(sku_id_url, goods_title, buy_result)
+
+    def monitor_main(self):
         try:
-            checkSession = requests.Session()
-            checkSession.headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/531.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+            check_session = requests.Session()
+            check_session.headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                              "Chrome/75.0.3770.100 Safari/531.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,"
+                          "application/signed-exchange;v=b3",
                 "Connection": "keep-alive"
             }
-            self.updateStateText('第 ' + str(self.cont) + ' 次查询:')
+            self.update_state_text('第 ' + str(self.cont) + ' 次查询:')
             self.cont += 1
-            inStockSkuid = self.checkStock()
-            soldOutNum = 0
-            for skuId in inStockSkuid:
-                if self.isSoldOut(skuId):
-                    self.updateStateText('%s 编号商品有货啦! 马上下单.' % skuId)
-                    skuidUrl = 'https://item.jd.com/' + skuId + '.html'
-                    if self.buyGoods(skuId):
-                        self.sendMail(skuidUrl, True)
-                    else:
-                        self.sendMail(skuidUrl, False)
-                    self.stopNow()
+            in_stock_sku_id = self.check_stock()
+            sold_out_num = 0
+
+            retry_times = global_config.getRaw("config", "buy_retry_times")
+            if retry_times is not None:
+                retry_times = 5
+
+            for skuId in in_stock_sku_id:
+                if not self.is_sold_out(skuId):
+                    self.update_state_text('%s 编号商品有货啦! 马上下单.' % skuId)
+                    buy_result = self.buy_goods(skuId, retry_times)
+                    if bool(global_config.getRaw("messenger", "enable")):
+                        self.notify(skuId, buy_result)
+                    self.stop_now()
 
                 else:
-                    if self.isMonitorSoldout == False:
-                        self.updateStateText('%s 编号商品已下架.' % skuId)
-                        self.skuid.remove(skuId)
-                        idBeg = self.skuidString.find(str(skuId))
-                        idEnd = idBeg + len(str(skuId))
-                        self.skuidString = self.skuidString[0:idBeg] + self.skuidString[idEnd + 1:]
-                        self.inputGoods.setText(self.skuidString)
-                        self.updateStateText('已将 %s 编号的下架商品清除, 并更新了商品编号输入框.' % skuId)
-                        self.selectAll()
-                        self.removeItem()
+                    if not self.is_monitor_sold_out:
+                        self.update_state_text('%s 编号商品已下架或抢空.' % skuId)
+                        self.sku_id.remove(skuId)
+                        id_beg = self.sku_id_string.find(str(skuId))
+                        id_end = id_beg + len(str(skuId))
+                        self.sku_id_string = self.sku_id_string[0:id_beg] + self.sku_id_string[id_end + 1:]
+                        self.inputGoods.setText(self.sku_id_string)
+                        self.update_state_text('已将 %s 编号的下架商品清除, 并更新了商品编号输入框.' % skuId)
+                        self.select_all()
+                        self.remove_item()
                     else:
-                        soldOutNum += 1
-            if soldOutNum != 0:
-                self.updateStateText('监控的 %d 个商品已下架, 但当前模式保持监控.' % soldOutNum)
+                        sold_out_num += 1
+            if sold_out_num != 0:
+                self.update_state_text('监控的 %d 个商品已下架, 但当前模式保持监控.' % sold_out_num)
 
             if self.cont % 300 == 0:
-                self.checkLogin()
+                self.check_login()
         except Exception as e:
             import traceback
-            self.updateStateText(traceback.format_exc())
+            self.update_state_text(traceback.format_exc())
 
-    def updateStateText(self, stateText):
+    def update_state_text(self, state_text):
         # print(stateText)
-        self.logger.info(stateText)
-        self.textEdit.moveCursor(QtGui.QTextCursor.End)
-        self.textEdit.insertPlainText(f'{time.ctime()} > ' + stateText + '\n')
+        self.logger.info(state_text)
+        self.text_edit.moveCursor(QtGui.QTextCursor.End)
+        self.text_edit.insertPlainText(f'{time.ctime()} > ' + state_text + '\n')
+
 
 def main():
     app = QApplication(sys.argv)
-    test = Autobuy()
+    auto_buy = Autobuy()
+    auto_buy.show()
     sys.exit(app.exec_())
-
 
 
 if __name__ == '__main__':
