@@ -11,11 +11,12 @@ import smtplib
 import re
 from email.mime.text import MIMEText
 from email.header import Header
+from config import global_config
 
 import traceback
 
 
-def setLogger(logFileName, logger):
+def set_logger(log_file_name, logger):
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
 
@@ -24,47 +25,49 @@ def setLogger(logFileName, logger):
     logger.addHandler(console_handler)
 
     file_handler = logging.handlers.RotatingFileHandler(
-        logFileName, maxBytes=10485760, backupCount=5, encoding="utf-8")
+        log_file_name, maxBytes=10485760, backupCount=5, encoding="utf-8")
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
 
-def send_mail(url, isOrder, sendTo):
-    if len(sendTo) == 0 or sendTo == '$$$$$$$@qq.com':
+def send_mail(url, is_order, send_to):
+    if len(send_to) == 0 or send_to == '$$$$$$$@qq.com':
         return
 
     mailRe = re.compile('^\w{1,15}@\w{1,10}\.(com|cn|net)$')
-    if not re.search(mailRe, sendTo):
+    if not re.search(mailRe, send_to):
         return
 
-    sendFrom = '645064582@qq.com'
+    send_from = global_config.getRaw('mail_from', 'account')
+    smtp_server = global_config.getRaw('mail_from', 'smtp_server')
+    smtp_server_port = int(global_config.getRaw('mail_from', 'smtp_server_port'))
+    send_password = global_config.getRaw('mail_from', 'password')
 
-    smtp_server = 'smtp.qq.com'
-    if isOrder:
+    if is_order:
         msg = MIMEText(url + ' 商品已下单, 请在尽快付款', 'plain', 'utf-8')
     else:
         msg = MIMEText(url + ' 商品下单失败.', 'plain', 'utf-8')
 
-    msg['From'] = Header(sendFrom)
-    msg['To'] = Header(sendTo)
+    msg['From'] = Header(send_from)
+    msg['To'] = Header(send_to)
     msg['Subject'] = Header('买到啦')
 
     server = smtplib.SMTP_SSL(host=smtp_server)
-    server.connect(smtp_server, 465)
-    server.login(sendFrom, 'nkrzicfjkzznbehi')
-    server.sendmail(sendFrom, sendTo, msg.as_string())
+    server.connect(smtp_server, smtp_server_port)
+    server.login(send_from, send_password)
+    server.sendmail(send_from, send_to, msg.as_string())
     server.quit()
 
 
-def sendError(sendTo):
-    if len(sendTo) == 0 or sendTo == '$$$$$$$@qq.com':
+def send_error(send_to):
+    if len(send_to) == 0 or send_to == '$$$$$$$@qq.com':
         return
 
     mailRe = re.compile('^\w{1,15}@\w{1,10}\.(com|cn|net)$')
-    if not re.search(mailRe, sendTo):
+    if not re.search(mailRe, send_to):
         return
 
-    sendFrom = '645064582@qq.com'
+    sendFrom = '359583129@qq.com'
 
     # 发信服务器
     smtp_server = 'smtp.qq.com'
@@ -73,13 +76,13 @@ def sendError(sendTo):
 
     # 邮件头信息
     msg['From'] = Header(sendFrom)
-    msg['To'] = Header(sendTo)
+    msg['To'] = Header(send_to)
     msg['Subject'] = Header('ERROR!')
     # 开启发信服务, 加密传输
     server = smtplib.SMTP_SSL(host=smtp_server)
     server.connect(smtp_server, 465)
-    server.login(sendFrom, 'nkrzicfjkzznbehi')
-    server.sendmail(sendFrom, sendTo, msg.as_string())
+    server.login(sendFrom, 'Hjc@921209')
+    server.sendmail(sendFrom, send_to, msg.as_string())
     server.quit()
 
 
@@ -91,14 +94,14 @@ def get_tag_value(tag, key='', index=0):
     return value.strip(' \t\r\n')
 
 
-def responseStatus(resp):
+def response_status(resp):
     if resp.status_code != requests.codes.OK:
         print('Status: %u, Url: %s' % (resp.status_code, resp.url))
         return False
     return True
 
 
-def validateCookies(logger, session):
+def validate_cookies(logger, session):
     for flag in range(1, 3):
         try:
             targetURL = 'https://order.jd.com/center/list.action'
@@ -119,7 +122,7 @@ def validateCookies(logger, session):
             continue
 
 
-def getUsername(logger, session):
+def get_user_name(logger, session):
     userName_Url = 'https://passport.jd.com/new/helloService.ashx?callback=jQuery339448&_=' + str(
         int(time.time() * 1000))
     session.headers = {
@@ -129,14 +132,14 @@ def getUsername(logger, session):
         "Connection": "keep-alive"
     }
     resp = session.get(url=userName_Url, allow_redirects=True)
-    resultText = resp.text
-    resultText = resultText.replace('jQuery339448(', '')
-    resultText = resultText.replace(')', '')
-    usernameJson = json.loads(resultText)
-    logger.info('登录账号名称: ' + usernameJson['nick'])
+    result_text = resp.text
+    result_text = result_text.replace('jQuery339448(', '')
+    result_text = result_text.replace(')', '')
+    user_name_json = json.loads(result_text)
+    logger.info('登录账号名称: ' + user_name_json['nick'])
 
 
-def cancelSelectCartItem(session):
+def cancel_select_cart_item(session):
     url = "https://cart.jd.com/cancelAllItem.action"
     data = {
         't': 0,
@@ -150,7 +153,7 @@ def cancelSelectCartItem(session):
     return True
 
 
-def cart_detail(session, logger, isOutput=False):
+def cart_detail(session, logger, is_output=False):
     url = 'https://cart.jd.com/cart.action'
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36",
@@ -162,7 +165,7 @@ def cart_detail(session, logger, isOutput=False):
     resp = session.get(url, headers=headers)
     soup = BeautifulSoup(resp.text, "html.parser")
 
-    cartDetail = dict()
+    cart_detail = dict()
     for item in soup.find_all(class_='item-item'):
         sku_id = item['skuid']  # 商品id
         try:
@@ -172,7 +175,7 @@ def cart_detail(session, logger, isOutput=False):
             p_type = item_attr_list[4]
             promo_id = target_id = item_attr_list[-1] if len(item_attr_list) == 7 else 0
 
-            cartDetail[sku_id] = {
+            cart_detail[sku_id] = {
                 'name': get_tag_value(item.select('div.p-name a')),  # 商品名称
                 'verder_id': item['venderid'],  # 商家id
                 'count': int(item['num']),  # 数量
@@ -186,9 +189,9 @@ def cart_detail(session, logger, isOutput=False):
         except Exception as e:
             logger.error("商品%s在购物车中的信息无法解析, 报错信息: %s, 该商品自动忽略", sku_id, e)
 
-    if isOutput == True:
-        logger.info('当前购物车信息: %s', cartDetail)
-    return cartDetail
+    if is_output:
+        logger.info('当前购物车信息: %s', cart_detail)
+    return cart_detail
 
 
 def change_item_num_in_cart(sku_id, vender_id, num, p_type, target_id, promo_id, session):
@@ -215,7 +218,7 @@ def change_item_num_in_cart(sku_id, vender_id, num, p_type, target_id, promo_id,
     return json.loads(resp.text)['sortedWebCartResult']['achieveSevenState'] == 2
 
 
-def addItemToCart(sku_id, session, logger):
+def add_item_to_cart(sku_id, session, logger):
     url = 'https://cart.jd.com/gate.action'
     payload = {
         'pid': sku_id,
@@ -250,7 +253,7 @@ def get_checkout_page_detail(session, logger):
     }
     try:
         resp = session.get(url=url, params=payload, headers=headers)
-        if not responseStatus(resp):
+        if not response_status(resp):
             logger.error('获取订单结算页信息失败')
             return ''
 
@@ -355,13 +358,13 @@ def item_removed(sku_id):
     return '该商品已下柜' not in page.text
 
 
-def buyGood(sku_id, session, logger, payment_pwd):
+def buy_good(sku_id, session, logger, payment_pwd):
     for count in range(1, 5):
         logger.info('第[%s/%s]次尝试提交订单', count, 5)
-        cancelSelectCartItem(session)
+        cancel_select_cart_item(session)
         cart = cart_detail(session, logger)
         if sku_id not in cart:
-            addItemToCart(sku_id, session, logger)
+            add_item_to_cart(sku_id, session, logger)
             cart_detail(session, logger, True)
 
         risk_control = get_checkout_page_detail(session, logger)
@@ -385,7 +388,7 @@ def main(sendTo, cookies_String, url):
 
     logFileName = 'jdAutoBuyGood.log'
     logger = logging.getLogger()
-    setLogger(logFileName, logger)
+    set_logger(logFileName, logger)
 
     manual_cookies = {}
     for item in cookies_String.split(';'):
@@ -402,8 +405,8 @@ def main(sendTo, cookies_String, url):
     while (1):
         try:
             if flag == 1:
-                validateCookies(logger, session)
-                getUsername(logger, session)
+                validate_cookies(logger, session)
+                get_user_name(logger, session)
             checkSession = requests.Session()
             checkSession.headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36",
@@ -422,7 +425,7 @@ def main(sendTo, cookies_String, url):
                 else:
                     if item_removed(skuId):
                         logger.info('[%s]商品有货啦! 马上下单...', skuId)
-                        if buyGood(skuId, session, logger, payment_pwd):
+                        if buy_good(skuId, session, logger, payment_pwd):
                             send_mail(skuidUrl, True, sendTo)
                             sys.exit(1)
                         else:
@@ -433,7 +436,7 @@ def main(sendTo, cookies_String, url):
             time.sleep(5)
             if flag % 20 == 0:
                 logger.info('校验是否还在登录...')
-                validateCookies(logger, session)
+                validate_cookies(logger, session)
         except Exception as e:
             print(traceback.format_exc())
             time.sleep(10)
@@ -458,4 +461,4 @@ if __name__ == '__main__':
     try:
         main(sendTo, cookies_String, contRe)
     except Exception:
-        sendError(sendTo)
+        send_error(sendTo)

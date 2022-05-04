@@ -787,26 +787,30 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
             return
 
         for mail in send_to:
+            if mail is None or len(mail) == 0:
+                return
             mail_re = re.compile('^\w{1,15}@\w{1,10}\.(com|cn|net)$')
-            if not re.search(mail_re, send_to):
+            if not re.search(mail_re, mail):
                 return
 
-            sendFrom = '359583129@qq.com'
+            send_from = global_config.getRaw('mail_from', 'account')
+            smtp_server = global_config.getRaw('mail_from', 'smtp_server')
+            smtp_server_port = int(global_config.getRaw('mail_from', 'smtp_server_port'))
+            send_password = global_config.getRaw('mail_from', 'password')
 
-            smtp_server = 'smtp.qq.com'
             if is_order:
                 msg = MIMEText('您抢购的 ' + goods_title + ' (' + url + ') 商品已下单, 请在尽快付款.', 'plain', 'utf-8')
             else:
                 msg = MIMEText('您抢购的 ' + goods_title + ' (' + url + ') 商品下单失败.', 'plain', 'utf-8')
 
-            msg['From'] = Header(sendFrom)
-            msg['To'] = Header(send_to)
+            msg['From'] = Header(send_from)
+            msg['To'] = Header(mail)
             msg['Subject'] = Header('京东商品自动购买程序提示讯息')
 
             server = smtplib.SMTP_SSL(host=smtp_server)
-            server.connect(smtp_server, 465)
-            server.login(sendFrom, 'Hjc@921209')
-            server.sendmail(sendFrom, send_to, msg.as_string())
+            server.connect(smtp_server, smtp_server_port)
+            server.login(send_from, send_password)
+            server.sendmail(send_from, mail, msg.as_string())
             server.quit()
 
     def send_bark(self, url, goods_title, is_order):
