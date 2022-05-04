@@ -96,6 +96,10 @@ class Ui_QSSWindow(object):
         self.checkBox.setObjectName("checkBox")
         self.area.addWidget(self.checkBox)
 
+        self.checkEnableNoticeBox = QtWidgets.QCheckBox(self.groupBox)
+        self.checkEnableNoticeBox.setObjectName("checkEnableNoticeBox")
+        self.area.addWidget(self.checkEnableNoticeBox)
+
         self.verticalLayout.addLayout(self.area)
         self.speedLayout = QtWidgets.QHBoxLayout()
         self.speedLayout.setObjectName("speedLayout")
@@ -176,6 +180,7 @@ class Ui_QSSWindow(object):
         self.start_btn.setText(_translate("QSSWindow", "开始监控(可自动登录)"))
         self.stop_btn.setText(_translate("QSSWindow", "停止监控"))
         self.checkBox.setText(_translate("QSSWindow", "是否自动忽略下架商品"))
+        self.checkEnableNoticeBox.setText(_translate("QSSWindow", "是否开启通知"))
 
         self.labelAboutMe.setText(_translate("QSSWindow",
                                              '<h1>使用指南</h1> <a href="https://github.com/ZhangYikaii/auto-buy-Python-tool">请点击这里跳转</a> <h3>战疫情, 加油!</h3> <h4>欢迎在GitHub上加星. 谢谢!</h4> <h3>Tips: 登录一次之后本地会保存登录信息, 重启软件之后仍然可以记住账号登录信息</h3> <h3>只需点击"开始监控"就可以自动登录, 不必重复扫码哦</h3>'))
@@ -208,8 +213,10 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
 
         self.speed = 5000
         self.is_monitor_sold_out = True
+        self.is_monitor_enable_notice = bool(global_config.getRaw("messenger", "enable"))
+
         # self.isLogin = False
-        self.cookiesString = ''
+        self.cookies_string = ''
         self.cookies = {}
         self.sku_id_string = ''
         self.sku_id = []
@@ -220,6 +227,8 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
         self.setupUi(self)
         self.connect_sign()
         self.init_data()
+
+        self.checkEnableNoticeBox.setChecked(self.is_monitor_enable_notice)
         # self.show()
 
     def load_qss(self):
@@ -255,9 +264,9 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
 
         self.set_logger()
 
-        if len(self.cookiesString) != 0:
+        if len(self.cookies_string) != 0:
             manual_cookies = {}
-            for item in self.cookiesString.split(';'):
+            for item in self.cookies_string.split(';'):
                 # 用=号分割.
                 name, value = item.strip().split('=', 1)
                 manual_cookies[name] = value
@@ -771,6 +780,8 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
 
         self.timer.timeout.connect(self.monitor_main)
         self.update_state_text("当前轮询速度为 %f 秒/次." % (self.speed / 1000))
+
+        # 自动忽略并删除下架商品
         if self.checkBox.isChecked():
             self.is_monitor_sold_out = False
             self.update_state_text('当前模式将为您自动忽略并删除下架商品.')
@@ -778,11 +789,19 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
             self.is_monitor_sold_out = True
             self.update_state_text('当前模式将为您保持监控下架商品, 若其上架则立即抢购.')
 
+        # 是否开启通知
+        if self.checkEnableNoticeBox.isChecked():
+            self.is_monitor_enable_notice = True
+            self.update_state_text('开启下单成功通知.')
+        else:
+            self.is_monitor_enable_notice = False
+            self.update_state_text('关闭下单成功通知.')
+
         self.timer.start(self.speed)  # 设置计时间隔并启动
         return True
 
-    def send_mail(self, url, goods_title, is_order):
-        send_to = self.inputMail.text()
+    @staticmethod
+    def send_mail(send_to, send_title, send_content):
         if send_to is None or len(send_to) == 0:
             return
 
@@ -798,14 +817,10 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
             smtp_server_port = int(global_config.getRaw('mail_from', 'smtp_server_port'))
             send_password = global_config.getRaw('mail_from', 'password')
 
-            if is_order:
-                msg = MIMEText('您抢购的 ' + goods_title + ' (' + url + ') 商品已下单, 请在尽快付款.', 'plain', 'utf-8')
-            else:
-                msg = MIMEText('您抢购的 ' + goods_title + ' (' + url + ') 商品下单失败.', 'plain', 'utf-8')
-
+            msg = MIMEText(send_content, 'plain', 'utf-8')
             msg['From'] = Header(send_from)
             msg['To'] = Header(mail)
-            msg['Subject'] = Header('京东商品自动购买程序提示讯息')
+            msg['Subject'] = Header(send_title)
 
             server = smtplib.SMTP_SSL(host=smtp_server)
             server.connect(smtp_server, smtp_server_port)
@@ -813,22 +828,15 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
             server.sendmail(send_from, mail, msg.as_string())
             server.quit()
 
-    def send_bark(self, url, goods_title, is_order):
-        bark_keys = self.inputBark.text()
-
+    @staticmethod
+    def send_bark(bark_keys, send_title, send_content):
         if bark_keys is None or len(bark_keys) == 0:
             return
 
         server_ip = global_config.getRaw("messenger", "bark_server_ip")
         server_port = int(global_config.getRaw("messenger", "bark_server_port"))
         pusher = BarkPusher(server_ip, server_port, bark_keys.split(","))
-
-        if is_order:
-            pusher.push_msg_content('抢购成功！' + goods_title, '您抢购的 ' + goods_title + ' (' + url + ') 商品已下单, 请在尽快付款.',
-                                    "jd_sec_kill")
-        else:
-            pusher.push_msg_content('抢购成功！' + goods_title, '您抢购的 ' + goods_title + ' (' + url + ') 商品已下单, 请在尽快付款.',
-                                    "jd_sec_kill")
+        pusher.push_msg_content(send_title, send_content, "jd_sec_kill")
 
     def remove_item(self):
         url = "https://cart.jd.com/batchRemoveSkusFromCart.action"
@@ -859,25 +867,34 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
         self.update_state_text('清空购物车勾选商品成功!')
         return True
 
-    def notify(self, sku_id, buy_result):
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/531.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
-            "Referer": "http://trade.jd.com/shopping/order/getOrderInfo.action",
-            "Connection": "keep-alive",
-            'Host': 'item.jd.com',
-        }
-        url = 'https://item.jd.com/{}.html'.format(sku_id)
-        page = requests.get(url=url, headers=headers)
-        soup = BeautifulSoup(page.text, "html.parser")
-        goods_title = soup.find("title").text
+    def notify(self, sku_id, buy_result, custom_content=None):
+        if custom_content is not None:
+            send_title = "通知!"
+            send_content = custom_content
+        else:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/531.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+                "Referer": "http://trade.jd.com/shopping/order/getOrderInfo.action",
+                "Connection": "keep-alive",
+                'Host': 'item.jd.com',
+            }
+            url = 'https://item.jd.com/{}.html'.format(sku_id)
+            page = requests.get(url=url, headers=headers)
+            soup = BeautifulSoup(page.text, "html.parser")
+            goods_title = soup.find("title").text
 
-        sku_id_url = 'https://item.jd.com/' + sku_id + '.html'
+            if buy_result:
+                send_title = '抢购成功！' + goods_title
+                send_content = '您抢购的 ' + goods_title + ' (' + url + ') 商品已下单, 请在尽快付款.'
+            else:
+                send_title = '抢购失败！' + goods_title
+                send_content = '您抢购的 ' + goods_title + ' (' + url + ') 商品抢购失败.'
 
         # 发邮件
-        self.send_mail(sku_id_url, goods_title, buy_result)
+        self.send_mail(self.inputMail.text(), send_title, send_content)
         # 发bark
-        self.send_bark(sku_id_url, goods_title, buy_result)
+        self.send_bark(self.inputBark.text(), send_title, send_content)
 
     def monitor_main(self):
         try:
@@ -902,7 +919,7 @@ class Autobuy(QtWidgets.QMainWindow, Ui_QSSWindow):
                 if not self.is_sold_out(skuId):
                     self.update_state_text('%s 编号商品有货啦! 马上下单.' % skuId)
                     buy_result = self.buy_goods(skuId, retry_times)
-                    if bool(global_config.getRaw("messenger", "enable")):
+                    if self.is_monitor_enable_notice:
                         self.notify(skuId, buy_result)
                     self.stop_now()
 

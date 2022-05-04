@@ -12,6 +12,7 @@ import re
 from email.mime.text import MIMEText
 from email.header import Header
 from config import global_config
+from bark.bark_pusher import BarkPusher
 
 import traceback
 
@@ -28,62 +29,6 @@ def set_logger(log_file_name, logger):
         log_file_name, maxBytes=10485760, backupCount=5, encoding="utf-8")
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
-
-
-def send_mail(url, is_order, send_to):
-    if len(send_to) == 0 or send_to == '$$$$$$$@qq.com':
-        return
-
-    mailRe = re.compile('^\w{1,15}@\w{1,10}\.(com|cn|net)$')
-    if not re.search(mailRe, send_to):
-        return
-
-    send_from = global_config.getRaw('mail_from', 'account')
-    smtp_server = global_config.getRaw('mail_from', 'smtp_server')
-    smtp_server_port = int(global_config.getRaw('mail_from', 'smtp_server_port'))
-    send_password = global_config.getRaw('mail_from', 'password')
-
-    if is_order:
-        msg = MIMEText(url + ' 商品已下单, 请在尽快付款', 'plain', 'utf-8')
-    else:
-        msg = MIMEText(url + ' 商品下单失败.', 'plain', 'utf-8')
-
-    msg['From'] = Header(send_from)
-    msg['To'] = Header(send_to)
-    msg['Subject'] = Header('买到啦')
-
-    server = smtplib.SMTP_SSL(host=smtp_server)
-    server.connect(smtp_server, smtp_server_port)
-    server.login(send_from, send_password)
-    server.sendmail(send_from, send_to, msg.as_string())
-    server.quit()
-
-
-def send_error(send_to):
-    if len(send_to) == 0 or send_to == '$$$$$$$@qq.com':
-        return
-
-    mailRe = re.compile('^\w{1,15}@\w{1,10}\.(com|cn|net)$')
-    if not re.search(mailRe, send_to):
-        return
-
-    sendFrom = '359583129@qq.com'
-
-    # 发信服务器
-    smtp_server = 'smtp.qq.com'
-    # 邮箱正文内容, 第一个参数为内容, 第二个参数为格式(plain 为纯文本), 第三个参数为编码
-    msg = MIMEText('main()函数出错嘞!', 'plain', 'utf-8')
-
-    # 邮件头信息
-    msg['From'] = Header(sendFrom)
-    msg['To'] = Header(send_to)
-    msg['Subject'] = Header('ERROR!')
-    # 开启发信服务, 加密传输
-    server = smtplib.SMTP_SSL(host=smtp_server)
-    server.connect(smtp_server, 465)
-    server.login(sendFrom, 'Hjc@921209')
-    server.sendmail(sendFrom, send_to, msg.as_string())
-    server.quit()
 
 
 def get_tag_value(tag, key='', index=0):
@@ -104,11 +49,11 @@ def response_status(resp):
 def validate_cookies(logger, session):
     for flag in range(1, 3):
         try:
-            targetURL = 'https://order.jd.com/center/list.action'
+            target_url = 'https://order.jd.com/center/list.action'
             payload = {
                 'rid': str(int(time.time() * 1000)),
             }
-            resp = session.get(url=targetURL, params=payload, allow_redirects=False)
+            resp = session.get(url=target_url, params=payload, allow_redirects=False)
             if resp.status_code == requests.codes.OK:
                 logger.info('登录成功!')
                 return True
@@ -236,6 +181,7 @@ def add_item_to_cart(sku_id, session, logger):
         logger.info('%s 已成功加入购物车', sku_id)
     else:
         logger.error('%s 添加到购物车失败', sku_id)
+    return result
 
 
 def get_checkout_page_detail(session, logger):
@@ -345,17 +291,29 @@ def submit_order(risk_control, session, logger, payment_pwd):
         return False
 
 
-def item_removed(sku_id):
+def item_removed(sku_id, logger, session):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/531.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
         "Referer": "http://trade.jd.com/shopping/order/getOrderInfo.action",
         "Connection": "keep-alive",
-        'Host': 'trade.jd.com',
+        'Host': 'item.jd.com',
     }
     url = 'https://item.jd.com/{}.html'.format(sku_id)
-    page = requests.get(url=url, headers=headers)
-    return '该商品已下柜' not in page.text
+    page = session.get(url=url, headers=headers)
+
+    if "刷新太频繁了" in page.text:
+        # 刷新太频繁
+        logger.info("[{}]刷新太频繁".format(sku_id))
+        return True
+    if "class=\"btn-special1 btn-lg btn-disable\" style=\"\">抢购</a>" in page.text:
+        # 按钮灰了，买不了了，抢没了
+        logger.info("[{}]已经抢空".format(sku_id))
+        return True
+    if '该商品已下柜' in page.text:
+        logger.info("[{}]商品已下柜".format(sku_id))
+        return True
+    return False
 
 
 def buy_good(sku_id, session, logger, payment_pwd):
@@ -364,7 +322,8 @@ def buy_good(sku_id, session, logger, payment_pwd):
         cancel_select_cart_item(session)
         cart = cart_detail(session, logger)
         if sku_id not in cart:
-            add_item_to_cart(sku_id, session, logger)
+            if not add_item_to_cart(sku_id, session, logger):
+                continue
             cart_detail(session, logger, True)
 
         risk_control = get_checkout_page_detail(session, logger)
@@ -378,7 +337,94 @@ def buy_good(sku_id, session, logger, payment_pwd):
         return False
 
 
-def main(sendTo, cookies_String, url):
+def send_mail(send_to, send_title, send_content):
+    if send_to is None or len(send_to) == 0:
+        return
+
+    for mail in send_to:
+        if mail is None or len(mail) == 0:
+            return
+        mail_re = re.compile('^\w{1,15}@\w{1,10}\.(com|cn|net)$')
+        if not re.search(mail_re, mail):
+            return
+
+        send_from = global_config.getRaw('mail_from', 'account')
+        smtp_server = global_config.getRaw('mail_from', 'smtp_server')
+        smtp_server_port = int(global_config.getRaw('mail_from', 'smtp_server_port'))
+        send_password = global_config.getRaw('mail_from', 'password')
+
+        msg = MIMEText(send_content, 'plain', 'utf-8')
+        msg['From'] = Header(send_from)
+        msg['To'] = Header(mail)
+        msg['Subject'] = Header(send_title)
+
+        server = smtplib.SMTP_SSL(host=smtp_server)
+        server.connect(smtp_server, smtp_server_port)
+        server.login(send_from, send_password)
+        server.sendmail(send_from, mail, msg.as_string())
+        server.quit()
+
+
+def send_bark(bark_keys, send_title, send_content):
+    if bark_keys is None or len(bark_keys) == 0:
+        return
+
+    server_ip = global_config.getRaw("messenger", "bark_server_ip")
+    server_port = int(global_config.getRaw("messenger", "bark_server_port"))
+    pusher = BarkPusher(server_ip, server_port, bark_keys)
+    pusher.push_msg_content(send_title, send_content, "jd_sec_kill")
+
+
+def notify(sku_id, buy_result, custom_content=None):
+    if custom_content is not None:
+        send_title = "通知!"
+        send_content = custom_content
+    else:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/531.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+            "Referer": "http://trade.jd.com/shopping/order/getOrderInfo.action",
+            "Connection": "keep-alive",
+            'Host': 'item.jd.com',
+        }
+        url = 'https://item.jd.com/{}.html'.format(sku_id)
+        page = requests.get(url=url, headers=headers)
+        soup = BeautifulSoup(page.text, "html.parser")
+        goods_title = soup.find("title").text
+
+        if buy_result:
+            send_title = '抢购成功！' + goods_title
+            send_content = '您抢购的 ' + goods_title + ' (' + url + ') 商品已下单, 请在尽快付款.'
+        else:
+            send_title = '抢购失败！' + goods_title
+            send_content = '您抢购的 ' + goods_title + ' (' + url + ') 商品抢购失败.'
+
+    # 发邮件
+    send_to = global_config.getRaw("messenger", "mails").split(",")
+    send_mail(send_to, send_title, send_content)
+    # 发bark
+    bark_keys = global_config.getRaw("messenger", "bark_keys").split(",")
+    send_bark(bark_keys, send_title, send_content)
+
+
+random_max = 0
+random_min = 0
+range_arr = global_config.getRaw("config", "loop_interval_random_time_range").split(",")
+if range_arr is not None and len(range_arr) == 2:
+    random_min = int(range_arr[0])
+    random_max = int(range_arr[1])
+
+
+def wait_some_time(logger):
+    if random_min > 0 and random_max > 0:
+        wait_time = random.randint(random_min, random_max)
+    else:
+        wait_time = int(global_config.getRaw("config", "loop_interval"))
+    logger.info("Monitor.loop.wait.%d..." % wait_time)
+    time.sleep(wait_time)
+
+
+def main(cookies_string, url):
     session = requests.session()
     session.headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/531.36",
@@ -386,54 +432,67 @@ def main(sendTo, cookies_String, url):
         "Connection": "keep-alive"
     }
 
-    logFileName = 'jdAutoBuyGood.log'
+    log_file_name = global_config.getRaw('config', 'log_name')
     logger = logging.getLogger()
-    set_logger(logFileName, logger)
+    set_logger(log_file_name, logger)
 
     manual_cookies = {}
-    for item in cookies_String.split(';'):
+    for item in cookies_string.split(';'):
         # 用=号分割.
         name, value = item.strip().split('=', 1)
         manual_cookies[name] = value
 
     # print(manual_cookies)
-    cookiesJar = requests.utils.cookiejar_from_dict(manual_cookies, cookiejar=None, overwrite=True)
-    session.cookies = cookiesJar
+    cookies_jar = requests.utils.cookiejar_from_dict(manual_cookies, cookiejar=None, overwrite=True)
+    session.cookies = cookies_jar
 
     payment_pwd = ''
     flag = 1
-    while (1):
+    while True:
         try:
             if flag == 1:
                 validate_cookies(logger, session)
                 get_user_name(logger, session)
-            checkSession = requests.Session()
-            checkSession.headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+            check_session = requests.Session()
+            check_session.headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                              "Chrome/79.0.3945.130 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,"
+                          "application/signed-exchange;v=b3",
                 "Connection": "keep-alive"
             }
             logger.info('第' + str(flag) + '次 查询...')
             flag += 1
+
+            url = global_config.get("config", "goods_urls").split(";")
+
             for i in url:
+                if i is None or len(i) == 0:
+                    continue
                 # 商品url
-                skuId = i.split('skuId=')[1].split('&')[0]
-                skuidUrl = 'https://item.jd.com/' + skuId + '.html'
-                response = checkSession.get(i)
-                if (response.text.find('无货') > 0):
-                    logger.info('[%s]商品无货.', skuId)
+                sku_id = i.split('skuIds=')[1].split('&')[0]
+                response = check_session.get(i)
+
+                if response.text.find('无货') > 0:
+                    logger.info('[%s]商品无货.', sku_id)
+                elif response.text.find('可配货') > 0:
+                    logger.info('[%s]商品等待配货.', sku_id)
                 else:
-                    if item_removed(skuId):
-                        logger.info('[%s]商品有货啦! 马上下单...', skuId)
-                        if buy_good(skuId, session, logger, payment_pwd):
-                            send_mail(skuidUrl, True, sendTo)
+                    if not item_removed(sku_id, logger, session):
+                        logger.info('[%s]商品有货啦! 马上下单...', sku_id)
+                        buy_result = buy_good(sku_id, session, logger, payment_pwd)
+
+                        if bool(global_config.getRaw('messenger', 'enable')):
+                            notify(sku_id, buy_result)
+                        if buy_result:
                             sys.exit(1)
-                        else:
-                            send_mail(skuidUrl, False, sendTo)
-                        sys.exit(1)
+
                     else:
-                        logger.info('[%s]商品有货, 但已下架.', skuId)
-            time.sleep(5)
+                        logger.info('[%s]商品有货, 但已下架.', sku_id)
+
+            # 循环间隔时间
+            wait_some_time(logger)
+
             if flag % 20 == 0:
                 logger.info('校验是否还在登录...')
                 validate_cookies(logger, session)
@@ -443,22 +502,13 @@ def main(sendTo, cookies_String, url):
 
 
 if __name__ == '__main__':
-    sendTo = ''
-    cookies_String = ''
-    fp = open("./Please fill out this document.txt", 'r', encoding='utf-8')
-    cont = fp.read()
-    pattern = re.compile("'(.*)'")
-    contRe = pattern.findall(cont)
-    if len(contRe) >= 2:
-        sendTo = contRe[0]
-        cookies_String = contRe[1]
-        print("Please confirm the email address: %s" % sendTo)
-        if len(cookies_String) == 0:
-            print("ERROR: Missing cookie.")
+    cookies_string = global_config.getRaw("config", "cookies")
+    if cookies_string is None or len(cookies_string) == 0:
+        print("ERROR: Missing cookie.")
 
-    contRe = contRe[2:]
+    goods_urls = global_config.getRaw("config", "goods_urls").split(",")
 
     try:
-        main(sendTo, cookies_String, contRe)
-    except Exception:
-        send_error(sendTo)
+        main(cookies_string, goods_urls)
+    except Exception as e:
+        notify(0, False, custom_content=e)
